@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wasm-pack --version)",
+      "Bash(rustup --version)",
+      "Bash(cargo --version)",
+      "Bash(command -v rustc)",
+      "Bash(rustc --version)",
+      "Bash(command -v cargo)",
+      "Bash(command -v wasm-pack)",
+      "Bash(rustup target:*)",
+      "Bash(chmod +x /c/code/ca/build.sh)",
+      "Bash(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs)",
+      "Bash(sh -s -- -y)",
+      "Bash(export PATH=\"$HOME/.cargo/bin:$PATH\")",
+      "Bash(cargo install:*)",
+      "Read(//mingw64/**)",
+      "Bash(pacman --version)",
+      "Bash(curl -L https://github.com/nicogram/nicmcps/releases/download/wasm-pack-v0.14.0/wasm-pack-init.exe -o /tmp/wasm-pack-init.exe)",
+      "Bash(curl:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(where cl.exe)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft Visual Studio/2022/**)",
+      "Read(//c/Program Files/Microsoft Visual Studio/2022/**)",
+      "Bash(pacman -S mingw-w64-x86_64-toolchain --noconfirm)",
+      "Bash(npm --version)",
+      "Bash(volta --version)",
+      "Bash(npm install:*)",
+      "Bash(wasm-pack build:*)",
+      "Bash(npx -y serve . -p 8080 -C)",
+      "Bash(pkill -f \"serve.*8080\")",
+      "Bash(npx serve:*)"
+    ]
+  }
+}

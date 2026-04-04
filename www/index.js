@@ -1,0 +1,468 @@
+import init, { Universe } from '../pkg/ca.js';
+
+// ─── Presets ────────────────────────────────────────────────
+const LIFE_PRESETS = [
+  { name: "Conway's Life",  b: [3],          s: [2, 3] },
+  { name: "HighLife",        b: [3, 6],       s: [2, 3] },
+  { name: "Seeds",           b: [2],          s: [] },
+  { name: "Day & Night",    b: [3, 6, 7, 8], s: [3, 4, 6, 7, 8] },
+  { name: "Replicator",     b: [1, 3, 5, 7], s: [1, 3, 5, 7] },
+  { name: "Diamoeba",       b: [3, 5, 6, 7, 8], s: [5, 6, 7, 8] },
+  { name: "2x2",            b: [3, 6],       s: [1, 2, 5] },
+  { name: "Morley (Move)",  b: [3, 6, 8],    s: [2, 4, 5] },
+  { name: "Anneal",         b: [4, 6, 7, 8], s: [3, 5, 6, 7, 8] },
+  { name: "Life w/o Death", b: [3],          s: [0,1,2,3,4,5,6,7,8] },
+  { name: "Maze",           b: [3],          s: [1,2,3,4,5] },
+  { name: "Custom",         b: [],           s: [] },
+];
+
+const ELEM_PRESETS = [
+  { name: "Rule 30",  rule: 30 },
+  { name: "Rule 90",  rule: 90 },
+  { name: "Rule 110", rule: 110 },
+  { name: "Rule 184", rule: 184 },
+  { name: "Rule 150", rule: 150 },
+  { name: "Rule 73",  rule: 73 },
+  { name: "Rule 45",  rule: 45 },
+  { name: "Rule 60",  rule: 60 },
+  { name: "Rule 105", rule: 105 },
+  { name: "Rule 225", rule: 225 },
+  { name: "Custom",   rule: 30 },
+];
+
+// ─── Color Palettes ─────────────────────────────────────────
+const PALETTES = {
+  life:       [[17,17,17], [0,255,136]],
+  elementary: [[17,17,17], [210,210,210]],
+  brain:      [[17,17,17], [0,170,255], [180,40,100]],
+  wireworld:  [[17,17,17], [68,150,255], [255,68,68], [255,180,30]],
+};
+
+function buildCyclicPalette(n) {
+  const pal = [[17, 17, 17]];
+  for (let i = 1; i < n; i++) {
+    const h = (i / n) * 360;
+    const [r, g, b] = hslToRgb(h, 80, 58);
+    pal.push([r, g, b]);
+  }
+  return pal;
+}
+
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r, g, b;
+  if (h < 60)       { r = c; g = x; b = 0; }
+  else if (h < 120) { r = x; g = c; b = 0; }
+  else if (h < 180) { r = 0; g = c; b = x; }
+  else if (h < 240) { r = 0; g = x; b = c; }
+  else if (h < 300) { r = x; g = 0; b = c; }
+  else              { r = c; g = 0; b = x; }
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
+function bsMask(arr) {
+  let mask = 0;
+  for (const n of arr) mask |= (1 << n);
+  return mask;
+}
+
+function maskToArr(mask) {
+  const arr = [];
+  for (let i = 0; i <= 8; i++) {
+    if (mask & (1 << i)) arr.push(i);
+  }
+  return arr;
+}
+
+// ─── Main ───────────────────────────────────────────────────
+async function main() {
+  const wasm = await init();
+
+  const GRID_W = 200, GRID_H = 150, CELL_SIZE = 4;
+  let universe = new Universe(GRID_W, GRID_H);
+
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = GRID_W;
+  canvas.height = GRID_H;
+  canvas.style.width = GRID_W * CELL_SIZE + 'px';
+  canvas.style.height = GRID_H * CELL_SIZE + 'px';
+
+  const imageData = ctx.createImageData(GRID_W, GRID_H);
+  const imgBuf = imageData.data;
+  // Set alpha to 255 once
+  for (let i = 3; i < imgBuf.length; i += 4) imgBuf[i] = 255;
+
+  let running = true;
+  let generation = 0;
+  let speed = 1;
+  let animId = null;
+  let palette = PALETTES.life;
+  let caType = 'life';
+
+  const genSpan = document.getElementById('gen');
+
+  // ─── Rendering ──────────────────────────────────────────
+  function draw() {
+    const ptr = universe.cells_ptr();
+    const cells = new Uint8Array(wasm.memory.buffer, ptr, GRID_W * GRID_H);
+    for (let i = 0; i < GRID_W * GRID_H; i++) {
+      const c = palette[cells[i]] || palette[0];
+      const off = i * 4;
+      imgBuf[off]     = c[0];
+      imgBuf[off + 1] = c[1];
+      imgBuf[off + 2] = c[2];
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  // ─── Animation loop ─────────────────────────────────────
+  function loop() {
+    if (!running) return;
+    for (let i = 0; i < speed; i++) {
+      universe.tick();
+      generation++;
+    }
+    genSpan.textContent = generation;
+    draw();
+    animId = requestAnimationFrame(loop);
+  }
+
+  function stop() {
+    running = false;
+    if (animId) cancelAnimationFrame(animId);
+    animId = null;
+  }
+
+  function start() {
+    if (!running) {
+      running = true;
+      playPauseBtn.textContent = 'Pause';
+      playPauseBtn.classList.remove('active');
+      loop();
+    }
+  }
+
+  // ─── Build B/S checkboxes ───────────────────────────────
+  function buildBSRow(containerId, initial) {
+    const row = document.getElementById(containerId);
+    // Keep the label span, clear the rest
+    while (row.children.length > 1) row.removeChild(row.lastChild);
+    const labels = [];
+    for (let n = 0; n <= 8; n++) {
+      const lbl = document.createElement('label');
+      lbl.textContent = n;
+      lbl.dataset.n = n;
+      if (initial.includes(n)) lbl.classList.add('on');
+      lbl.addEventListener('click', () => {
+        lbl.classList.toggle('on');
+        onBSChange();
+      });
+      row.appendChild(lbl);
+      labels.push(lbl);
+    }
+    return labels;
+  }
+
+  function readBS(containerId) {
+    const row = document.getElementById(containerId);
+    const arr = [];
+    for (const lbl of row.querySelectorAll('label')) {
+      if (lbl.classList.contains('on')) arr.push(parseInt(lbl.dataset.n));
+    }
+    return arr;
+  }
+
+  function setBS(containerId, arr) {
+    const row = document.getElementById(containerId);
+    for (const lbl of row.querySelectorAll('label')) {
+      const n = parseInt(lbl.dataset.n);
+      lbl.classList.toggle('on', arr.includes(n));
+    }
+  }
+
+  function onBSChange() {
+    const b = readBS('birth-row');
+    const s = readBS('surv-row');
+    universe.update_life_like(bsMask(b), bsMask(s));
+    // Check if matches a preset
+    const presetSel = document.getElementById('life-preset');
+    let matched = false;
+    for (let i = 0; i < LIFE_PRESETS.length - 1; i++) {
+      const p = LIFE_PRESETS[i];
+      if (arrEq(p.b, b) && arrEq(p.s, s)) {
+        presetSel.value = i;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) presetSel.value = LIFE_PRESETS.length - 1; // Custom
+  }
+
+  function arrEq(a, b) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+
+  // ─── Rule visualization (Elementary) ────────────────────
+  function updateRuleViz(rule) {
+    const viz = document.getElementById('rule-viz');
+    viz.innerHTML = '';
+    for (let i = 7; i >= 0; i--) {
+      const div = document.createElement('div');
+      div.className = 'rule-pat';
+      const top = document.createElement('div');
+      top.className = 'top';
+      for (let bit = 2; bit >= 0; bit--) {
+        const cell = document.createElement('div');
+        cell.className = 'cell ' + ((i >> bit) & 1 ? 'on' : 'off');
+        top.appendChild(cell);
+      }
+      const out = document.createElement('div');
+      out.className = 'cell out ' + ((rule >> i) & 1 ? 'on' : 'off');
+      div.appendChild(top);
+      div.appendChild(out);
+      viz.appendChild(div);
+    }
+  }
+
+  // ─── Populate preset dropdowns ──────────────────────────
+  const lifePresetSel = document.getElementById('life-preset');
+  LIFE_PRESETS.forEach((p, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = p.name + (p.b.length ? ` (B${p.b.join('')}/S${p.s.join('')})` : '');
+    lifePresetSel.appendChild(opt);
+  });
+
+  const elemPresetSel = document.getElementById('elem-preset');
+  ELEM_PRESETS.forEach((p, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = p.name;
+    elemPresetSel.appendChild(opt);
+  });
+
+  // ─── Init B/S checkboxes ────────────────────────────────
+  buildBSRow('birth-row', [3]);
+  buildBSRow('surv-row', [2, 3]);
+
+  // ─── CA Type switching ──────────────────────────────────
+  const paramSections = {
+    life: document.getElementById('life-params'),
+    elementary: document.getElementById('elem-params'),
+    brain: document.getElementById('bb-params'),
+    wireworld: document.getElementById('ww-params'),
+    cyclic: document.getElementById('cyc-params'),
+  };
+
+  function switchCA(type) {
+    caType = type;
+    // Show/hide param sections
+    for (const [key, el] of Object.entries(paramSections)) {
+      el.classList.toggle('active', key === type);
+    }
+    // Configure universe
+    generation = 0;
+    genSpan.textContent = '0';
+    switch (type) {
+      case 'life': {
+        const b = readBS('birth-row');
+        const s = readBS('surv-row');
+        universe.set_life_like(bsMask(b), bsMask(s));
+        palette = PALETTES.life;
+        universe.randomize(Math.random() * 0xFFFFFFFF | 0);
+        break;
+      }
+      case 'elementary': {
+        const rule = parseInt(document.getElementById('elem-rule').value) || 30;
+        universe.set_elementary(rule);
+        palette = PALETTES.elementary;
+        updateRuleViz(rule);
+        break;
+      }
+      case 'brain': {
+        universe.set_brians_brain();
+        palette = PALETTES.brain;
+        universe.randomize(Math.random() * 0xFFFFFFFF | 0);
+        break;
+      }
+      case 'wireworld': {
+        universe.set_wireworld();
+        palette = PALETTES.wireworld;
+        universe.clear();
+        break;
+      }
+      case 'cyclic': {
+        const ns = parseInt(document.getElementById('cyc-states').value) || 16;
+        const th = parseInt(document.getElementById('cyc-threshold').value) || 3;
+        universe.set_cyclic(ns, th);
+        palette = buildCyclicPalette(ns);
+        universe.randomize(Math.random() * 0xFFFFFFFF | 0);
+        break;
+      }
+    }
+    draw();
+    if (!running) draw();
+  }
+
+  // ─── Event handlers ─────────────────────────────────────
+  document.getElementById('ca-type').addEventListener('change', (e) => {
+    switchCA(e.target.value);
+  });
+
+  lifePresetSel.addEventListener('change', (e) => {
+    const p = LIFE_PRESETS[parseInt(e.target.value)];
+    if (!p || p.name === 'Custom') return;
+    setBS('birth-row', p.b);
+    setBS('surv-row', p.s);
+    universe.update_life_like(bsMask(p.b), bsMask(p.s));
+  });
+
+  elemPresetSel.addEventListener('change', (e) => {
+    const p = ELEM_PRESETS[parseInt(e.target.value)];
+    if (!p || p.name === 'Custom') return;
+    document.getElementById('elem-rule').value = p.rule;
+    universe.set_elementary(p.rule);
+    updateRuleViz(p.rule);
+    generation = 0;
+    genSpan.textContent = '0';
+    draw();
+  });
+
+  document.getElementById('elem-rule').addEventListener('change', (e) => {
+    const rule = Math.max(0, Math.min(255, parseInt(e.target.value) || 0));
+    e.target.value = rule;
+    universe.update_elementary(rule);
+    updateRuleViz(rule);
+    // Set preset to Custom if doesn't match
+    const match = ELEM_PRESETS.findIndex(p => p.rule === rule);
+    elemPresetSel.value = match >= 0 ? match : ELEM_PRESETS.length - 1;
+  });
+
+  document.getElementById('cyc-states').addEventListener('change', () => {
+    const ns = parseInt(document.getElementById('cyc-states').value) || 16;
+    const th = parseInt(document.getElementById('cyc-threshold').value) || 3;
+    universe.update_cyclic(ns, th);
+    palette = buildCyclicPalette(ns);
+    draw();
+  });
+  document.getElementById('cyc-threshold').addEventListener('change', () => {
+    const ns = parseInt(document.getElementById('cyc-states').value) || 16;
+    const th = parseInt(document.getElementById('cyc-threshold').value) || 3;
+    universe.update_cyclic(ns, th);
+  });
+
+  // Speed
+  const speedSlider = document.getElementById('speed');
+  const speedVal = document.getElementById('speed-val');
+  speedSlider.addEventListener('input', (e) => {
+    speed = parseInt(e.target.value);
+    speedVal.textContent = speed;
+  });
+
+  // Play/Pause
+  const playPauseBtn = document.getElementById('play-pause');
+  playPauseBtn.addEventListener('click', () => {
+    if (running) {
+      stop();
+      playPauseBtn.textContent = 'Play';
+      playPauseBtn.classList.add('active');
+    } else {
+      start();
+    }
+  });
+
+  // Step
+  document.getElementById('step').addEventListener('click', () => {
+    if (!running) {
+      universe.tick();
+      generation++;
+      genSpan.textContent = generation;
+      draw();
+    }
+  });
+
+  // Clear
+  document.getElementById('clear').addEventListener('click', () => {
+    universe.clear();
+    generation = 0;
+    genSpan.textContent = '0';
+    draw();
+  });
+
+  // Random
+  document.getElementById('random').addEventListener('click', () => {
+    universe.randomize(Math.random() * 0xFFFFFFFF | 0);
+    generation = 0;
+    genSpan.textContent = '0';
+    if (caType === 'cyclic') {
+      const ns = parseInt(document.getElementById('cyc-states').value) || 16;
+      palette = buildCyclicPalette(ns);
+    }
+    draw();
+  });
+
+  // ─── Mouse interaction ──────────────────────────────────
+  let painting = false;
+  let paintState = 1;
+  let erasing = false;
+
+  function cellFromEvent(e) {
+    const rect = canvas.getBoundingClientRect();
+    const col = Math.floor((e.clientX - rect.left) / rect.width * GRID_W);
+    const row = Math.floor((e.clientY - rect.top) / rect.height * GRID_H);
+    if (col >= 0 && col < GRID_W && row >= 0 && row < GRID_H) {
+      return { row, col };
+    }
+    return null;
+  }
+
+  canvas.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const cell = cellFromEvent(e);
+    if (!cell) return;
+    if (e.button === 2) {
+      // Right click: erase
+      erasing = true;
+      painting = true;
+      universe.set_cell(cell.row, cell.col, 0);
+    } else {
+      // Left click: toggle first cell, then paint with that state
+      universe.toggle_cell(cell.row, cell.col);
+      // Read what state it became
+      const ptr = universe.cells_ptr();
+      const cells = new Uint8Array(wasm.memory.buffer, ptr, GRID_W * GRID_H);
+      paintState = cells[cell.row * GRID_W + cell.col];
+      painting = true;
+      erasing = false;
+    }
+    draw();
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (!painting) return;
+    const cell = cellFromEvent(e);
+    if (!cell) return;
+    universe.set_cell(cell.row, cell.col, erasing ? 0 : paintState);
+    draw();
+  });
+
+  window.addEventListener('mouseup', () => {
+    painting = false;
+    erasing = false;
+  });
+
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ─── Init and start ─────────────────────────────────────
+  universe.set_life_like(bsMask([3]), bsMask([2, 3]));
+  universe.randomize(Date.now() & 0xFFFFFFFF);
+  updateRuleViz(30);
+  draw();
+  loop();
+}
+
+main();

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cellular Automata</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #ddd;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* --- Sidebar --- */
+    #sidebar {
+      width: 250px;
+      min-width: 250px;
+      background: #151515;
+      border-right: 1px solid #2a2a2a;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 12px;
+      gap: 10px;
+    }
+    #sidebar h1 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .section { display: flex; flex-direction: column; gap: 5px; }
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #666;
+      font-weight: 600;
+    }
+    select, input[type="number"] {
+      background: #222;
+      color: #ddd;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 13px;
+      width: 100%;
+    }
+    select:focus, input:focus { outline: none; border-color: #0a7; }
+    input[type="number"] { width: 70px; }
+
+    /* Param sections */
+    .param-section { display: none; flex-direction: column; gap: 6px; }
+    .param-section.active { display: flex; }
+    .param-section .desc {
+      font-size: 11px;
+      color: #888;
+      line-height: 1.4;
+      padding: 4px 0;
+    }
+
+    /* B/S checkboxes */
+    .bs-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+    .bs-row .bs-label { width: 14px; font-weight: 600; color: #999; }
+    .bs-row label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 11px;
+      color: #888;
+      user-select: none;
+      transition: all 0.1s;
+    }
+    .bs-row label:hover { border-color: #555; }
+    .bs-row label.on { background: #0a7; border-color: #0a7; color: #fff; }
+    .bs-row input { display: none; }
+
+    /* Rule viz for elementary */
+    #rule-viz {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      padding: 4px 0;
+    }
+    .rule-pat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+    }
+    .rule-pat .top { display: flex; gap: 1px; }
+    .rule-pat .cell {
+      width: 8px;
+      height: 8px;
+      border-radius: 1px;
+    }
+    .rule-pat .cell.on { background: #ccc; }
+    .rule-pat .cell.off { background: #333; }
+    .rule-pat .out { margin-top: 1px; }
+
+    /* Inline inputs */
+    .inline-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .inline-row label { color: #999; white-space: nowrap; }
+
+    /* Speed slider */
+    input[type="range"] {
+      width: 100%;
+      accent-color: #0a7;
+    }
+    .speed-label { display: flex; justify-content: space-between; }
+
+    /* Buttons */
+    .btn-row { display: flex; gap: 4px; flex-wrap: wrap; }
+    button {
+      background: #252525;
+      color: #ccc;
+      border: 1px solid #383838;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      flex: 1;
+      min-width: 50px;
+      transition: all 0.1s;
+    }
+    button:hover { background: #333; border-color: #444; }
+    button.active { background: #0a7; border-color: #0a7; color: #fff; }
+
+    #info {
+      font-size: 11px;
+      color: #666;
+      padding-top: 4px;
+      border-top: 1px solid #2a2a2a;
+    }
+
+    /* --- Canvas area --- */
+    #canvas-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      cursor: crosshair;
+    }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <h1>Cellular Automata</h1>
+
+    <div class="section">
+      <span class="section-label">Type</span>
+      <select id="ca-type">
+        <option value="life">Life-like</option>
+        <option value="elementary">Elementary (1D)</option>
+        <option value="brain">Brian's Brain</option>
+        <option value="wireworld">Wireworld</option>
+        <option value="cyclic">Cyclic</option>
+      </select>
+    </div>
+
+    <!-- Life-like params -->
+    <div id="life-params" class="param-section active">
+      <span class="section-label">Preset</span>
+      <select id="life-preset"></select>
+      <span class="section-label">Birth</span>
+      <div class="bs-row" id="birth-row">
+        <span class="bs-label">B</span>
+      </div>
+      <span class="section-label">Survival</span>
+      <div class="bs-row" id="surv-row">
+        <span class="bs-label">S</span>
+      </div>
+    </div>
+
+    <!-- Elementary params -->
+    <div id="elem-params" class="param-section">
+      <span class="section-label">Preset</span>
+      <select id="elem-preset"></select>
+      <div class="inline-row">
+        <label>Rule</label>
+        <input type="number" id="elem-rule" min="0" max="255" value="30">
+      </div>
+      <div id="rule-viz"></div>
+      <p class="desc">1D automaton. Each row is one generation, scrolling downward.</p>
+    </div>
+
+    <!-- Brian's Brain params -->
+    <div id="bb-params" class="param-section">
+      <p class="desc">
+        3 states: <b>Off</b> → <b>On</b> → <b>Dying</b> → Off<br>
+        Off turns On if exactly 2 On neighbors.
+      </p>
+    </div>
+
+    <!-- Wireworld params -->
+    <div id="ww-params" class="param-section">
+      <p class="desc">
+        4 states: <b>Empty</b>, <b>Electron head</b>, <b>Electron tail</b>, <b>Conductor</b><br>
+        Conductor becomes Head if 1-2 Head neighbors. Click to cycle states.
+      </p>
+    </div>
+
+    <!-- Cyclic params -->
+    <div id="cyc-params" class="param-section">
+      <div class="inline-row">
+        <label>States</label>
+        <input type="number" id="cyc-states" min="2" max="32" value="16">
+      </div>
+      <div class="inline-row">
+        <label>Threshold</label>
+        <input type="number" id="cyc-threshold" min="1" max="8" value="3">
+      </div>
+      <p class="desc">Each cell advances to the next state if enough neighbors already have it.</p>
+    </div>
+
+    <div class="section">
+      <span class="section-label">Speed</span>
+      <input type="range" id="speed" min="1" max="20" value="1">
+      <div class="speed-label">
+        <span>1x</span>
+        <span id="speed-val">1</span>
+        <span>20x</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <span class="section-label">Controls</span>
+      <div class="btn-row">
+        <button id="play-pause">Pause</button>
+        <button id="step">Step</button>
+      </div>
+      <div class="btn-row">
+        <button id="clear">Clear</button>
+        <button id="random">Random</button>
+      </div>
+    </div>
+
+    <div id="info">
+      Generation: <span id="gen">0</span>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <script type="module" src="index.js"></script>
+</body>
+</html>
