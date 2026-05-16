@@ -1,4 +1,4 @@
-import init, { Universe } from './pkg/ca.js';
+import init, { Universe } from '../pkg/ca.js';
 
 // ─── Presets ────────────────────────────────────────────────
 const LIFE_PRESETS = [
@@ -30,7 +30,7 @@ const ELEM_PRESETS = [
   { name: "Custom",   rule: 30 },
 ];
 
-// ─── Color Palettes ─────────────────────────────────────────
+// ─── Color Palettes (pixel mode) ────────────────────────────
 const PALETTES = {
   life:       [[17,17,17], [0,255,136]],
   elementary: [[17,17,17], [210,210,210]],
@@ -69,65 +69,261 @@ function bsMask(arr) {
   return mask;
 }
 
-function maskToArr(mask) {
-  const arr = [];
-  for (let i = 0; i <= 8; i++) {
-    if (mask & (1 << i)) arr.push(i);
-  }
-  return arr;
+// ─── Marching Squares ───────────────────────────────────────
+
+const MS_THEMES = {
+  cyan:  { bg: '#080818', fill: '#00e5ff', glow: '#00e5ff', blur: 6 },
+  green: { bg: '#0a0a0a', fill: '#00ff88', glow: '#00ff88', blur: 4 },
+  amber: { bg: '#0a0808', fill: '#ffaa00', glow: '#ffaa00', blur: 6 },
+  white: { bg: '#111111', fill: '#e0e0e0', glow: '#e0e0e0', blur: 0 },
+};
+
+function buildTileFuncs() {
+  const fns = new Array(16);
+  fns[0] = null;
+  fns[1] = (ctx, x, y, s) => {
+    const r = s / 2;
+    ctx.moveTo(x, y + s); ctx.lineTo(x, y + r);
+    ctx.arc(x, y + s, r, -Math.PI / 2, 0);
+  };
+  fns[2] = (ctx, x, y, s) => {
+    const r = s / 2;
+    ctx.moveTo(x + s, y + s); ctx.lineTo(x + r, y + s);
+    ctx.arc(x + s, y + s, r, Math.PI, Math.PI * 3 / 2);
+  };
+  fns[3] = (ctx, x, y, s) => {
+    ctx.moveTo(x, y + s / 2); ctx.lineTo(x, y + s);
+    ctx.lineTo(x + s, y + s); ctx.lineTo(x + s, y + s / 2);
+    ctx.quadraticCurveTo(x + s / 2, y + s * 0.47, x, y + s / 2);
+  };
+  fns[4] = (ctx, x, y, s) => {
+    const r = s / 2;
+    ctx.moveTo(x + s, y); ctx.lineTo(x + s, y + r);
+    ctx.arc(x + s, y, r, Math.PI / 2, Math.PI);
+  };
+  fns[5] = (ctx, x, y, s) => {
+    const r = s / 2;
+    ctx.moveTo(x, y + r);
+    ctx.arc(x, y + s, r, -Math.PI / 2, 0);
+    ctx.quadraticCurveTo(x + s, y + s, x + s, y + r);
+    ctx.arc(x + s, y, r, Math.PI / 2, Math.PI);
+    ctx.quadraticCurveTo(x, y, x, y + r);
+  };
+  fns[6] = (ctx, x, y, s) => {
+    ctx.moveTo(x + s / 2, y); ctx.lineTo(x + s, y);
+    ctx.lineTo(x + s, y + s); ctx.lineTo(x + s / 2, y + s);
+    ctx.quadraticCurveTo(x + s * 0.48, y + s / 2, x + s / 2, y);
+  };
+  fns[7] = (ctx, x, y, s) => {
+    ctx.moveTo(x, y + s / 2);
+    ctx.quadraticCurveTo(x, y, x + s / 2, y);
+    ctx.lineTo(x + s, y); ctx.lineTo(x + s, y + s);
+    ctx.lineTo(x, y + s); ctx.lineTo(x, y + s / 2);
+  };
+  fns[8] = (ctx, x, y, s) => {
+    const r = s / 2;
+    ctx.moveTo(x, y); ctx.lineTo(x + r, y);
+    ctx.arc(x, y, r, 0, Math.PI / 2);
+  };
+  fns[9] = (ctx, x, y, s) => {
+    ctx.moveTo(x + s / 2, y); ctx.lineTo(x, y);
+    ctx.lineTo(x, y + s); ctx.lineTo(x + s / 2, y + s);
+    ctx.quadraticCurveTo(x + s * 0.52, y + s / 2, x + s / 2, y);
+  };
+  fns[10] = (ctx, x, y, s) => {
+    const r = s / 2;
+    ctx.moveTo(x + r, y);
+    ctx.arc(x, y, r, 0, Math.PI / 2);
+    ctx.quadraticCurveTo(x, y + s, x + r, y + s);
+    ctx.arc(x + s, y + s, r, Math.PI, Math.PI * 3 / 2);
+    ctx.quadraticCurveTo(x + s, y, x + r, y);
+  };
+  fns[11] = (ctx, x, y, s) => {
+    ctx.moveTo(x, y); ctx.lineTo(x + s / 2, y);
+    ctx.quadraticCurveTo(x + s, y, x + s, y + s / 2);
+    ctx.lineTo(x + s, y + s); ctx.lineTo(x, y + s); ctx.lineTo(x, y);
+  };
+  fns[12] = (ctx, x, y, s) => {
+    ctx.moveTo(x, y); ctx.lineTo(x + s, y);
+    ctx.lineTo(x + s, y + s / 2);
+    ctx.quadraticCurveTo(x + s / 2, y + s * 0.53, x, y + s / 2);
+    ctx.lineTo(x, y);
+  };
+  fns[13] = (ctx, x, y, s) => {
+    ctx.moveTo(x, y); ctx.lineTo(x + s, y);
+    ctx.lineTo(x + s, y + s / 2);
+    ctx.quadraticCurveTo(x + s, y + s, x + s / 2, y + s);
+    ctx.lineTo(x, y + s); ctx.lineTo(x, y);
+  };
+  fns[14] = (ctx, x, y, s) => {
+    ctx.moveTo(x, y); ctx.lineTo(x + s, y);
+    ctx.lineTo(x + s, y + s); ctx.lineTo(x + s / 2, y + s);
+    ctx.quadraticCurveTo(x, y + s, x, y + s / 2);
+    ctx.lineTo(x, y);
+  };
+  fns[15] = (ctx, x, y, s) => { ctx.rect(x, y, s, s); };
+  return fns;
 }
+
+const TILE_FUNCS = buildTileFuncs();
+
+function buildTileImages(S, theme) {
+  const pad = Math.ceil(theme.blur * 2);
+  const size = S + pad * 2;
+  const tiles = new Array(16);
+  for (let i = 0; i < 16; i++) {
+    if (i === 0) { tiles[i] = null; continue; }
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const tctx = c.getContext('2d');
+    tctx.fillStyle = theme.fill;
+    if (theme.blur > 0) { tctx.shadowColor = theme.glow; tctx.shadowBlur = theme.blur; }
+    tctx.beginPath();
+    TILE_FUNCS[i](tctx, pad, pad, S);
+    tctx.fill();
+    tiles[i] = c;
+  }
+  const cr = S * 0.55;
+  const cs = Math.ceil(cr * 2) + 2;
+  const cc = document.createElement('canvas');
+  cc.width = cs; cc.height = cs;
+  const cctx = cc.getContext('2d');
+  cctx.fillStyle = theme.fill;
+  cctx.beginPath();
+  cctx.arc(cs / 2, cs / 2, cr, 0, Math.PI * 2);
+  cctx.fill();
+  return { tiles, circle: cc, pad, circleOff: cs / 2 };
+}
+
+const SPEED_TABLE = [1, 2, 3, 5, 8, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300, 480, 600, 900, 1200, 1800];
 
 // ─── Main ───────────────────────────────────────────────────
 async function main() {
   const wasm = await init();
 
-  const GRID_W = 200, GRID_H = 150, CELL_SIZE = 4;
+  const DISPLAY_W = 800, DISPLAY_H = 600;
+  let GRID_W = 200, GRID_H = 150;
   let universe = new Universe(GRID_W, GRID_H);
 
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
-  canvas.width = GRID_W;
-  canvas.height = GRID_H;
-  canvas.style.width = GRID_W * CELL_SIZE + 'px';
-  canvas.style.height = GRID_H * CELL_SIZE + 'px';
 
-  const imageData = ctx.createImageData(GRID_W, GRID_H);
-  const imgBuf = imageData.data;
-  // Set alpha to 255 once
-  for (let i = 3; i < imgBuf.length; i += 4) imgBuf[i] = 255;
+  let imageData, imgBuf;
+  let tileS = 0, tileImages = null;
 
   let running = true;
   let generation = 0;
-  let speed = 1;
+  let genPerSec = SPEED_TABLE[10];
   let animId = null;
   let palette = PALETTES.life;
   let caType = 'life';
+  let renderMode = 'pixels';
+  let msTheme = MS_THEMES.cyan;
+  let tickAccum = 0;
+  let lastFrameTime = 0;
 
   const genSpan = document.getElementById('gen');
 
+  // ─── Canvas Setup ─────────────────────────────────────────
+  function setupPixelCanvas() {
+    canvas.width = GRID_W;
+    canvas.height = GRID_H;
+    canvas.style.width = DISPLAY_W + 'px';
+    canvas.style.height = DISPLAY_H + 'px';
+    canvas.style.imageRendering = 'pixelated';
+    imageData = ctx.createImageData(GRID_W, GRID_H);
+    imgBuf = imageData.data;
+    for (let i = 3; i < imgBuf.length; i += 4) imgBuf[i] = 255;
+  }
+
+  function setupMarchingCanvas() {
+    tileS = Math.max(4, Math.floor(Math.min(
+      DISPLAY_W / (GRID_W - 1),
+      DISPLAY_H / (GRID_H - 1)
+    )));
+    const cw = (GRID_W - 1) * tileS;
+    const ch = (GRID_H - 1) * tileS;
+    canvas.width = cw;
+    canvas.height = ch;
+    canvas.style.width = cw + 'px';
+    canvas.style.height = ch + 'px';
+    canvas.style.imageRendering = 'auto';
+    tileImages = buildTileImages(tileS, msTheme);
+  }
+
+  function setupCanvas() {
+    if (renderMode === 'marching') setupMarchingCanvas();
+    else setupPixelCanvas();
+  }
+
   // ─── Rendering ──────────────────────────────────────────
-  function draw() {
+  function drawPixels() {
     const ptr = universe.cells_ptr();
     const cells = new Uint8Array(wasm.memory.buffer, ptr, GRID_W * GRID_H);
     for (let i = 0; i < GRID_W * GRID_H; i++) {
       const c = palette[cells[i]] || palette[0];
       const off = i * 4;
-      imgBuf[off]     = c[0];
-      imgBuf[off + 1] = c[1];
-      imgBuf[off + 2] = c[2];
+      imgBuf[off] = c[0]; imgBuf[off + 1] = c[1]; imgBuf[off + 2] = c[2];
     }
     ctx.putImageData(imageData, 0, 0);
   }
 
-  // ─── Animation loop ─────────────────────────────────────
-  function loop() {
+  function drawMarching() {
+    const ptr = universe.cells_ptr();
+    const cells = new Uint8Array(wasm.memory.buffer, ptr, GRID_W * GRID_H);
+    const S = tileS;
+    const { tiles, circle, pad, circleOff } = tileImages;
+
+    ctx.fillStyle = msTheme.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let row = 0; row < GRID_H; row++) {
+      for (let col = 0; col < GRID_W; col++) {
+        if (cells[row * GRID_W + col] > 0) {
+          ctx.drawImage(circle, col * S - circleOff, row * S - circleOff);
+        }
+      }
+    }
+
+    for (let row = 0; row < GRID_H - 1; row++) {
+      for (let col = 0; col < GRID_W - 1; col++) {
+        const tl = cells[row * GRID_W + col] > 0 ? 1 : 0;
+        const tr = cells[row * GRID_W + col + 1] > 0 ? 1 : 0;
+        const br = cells[(row + 1) * GRID_W + col + 1] > 0 ? 1 : 0;
+        const bl = cells[(row + 1) * GRID_W + col] > 0 ? 1 : 0;
+        const caseIdx = (tl << 3) | (tr << 2) | (br << 1) | bl;
+        if (caseIdx !== 0) {
+          ctx.drawImage(tiles[caseIdx], col * S - pad, row * S - pad);
+        }
+      }
+    }
+  }
+
+  function draw() {
+    if (renderMode === 'marching') drawMarching();
+    else drawPixels();
+    genSpan.textContent = generation;
+  }
+
+  // ─── Animation loop (time-based) ─────────────────────────
+  function loop(now) {
     if (!running) return;
-    for (let i = 0; i < speed; i++) {
+    if (lastFrameTime === 0) lastFrameTime = now;
+    const dt = now - lastFrameTime;
+    lastFrameTime = now;
+
+    const msPerGen = 1000 / genPerSec;
+    tickAccum += dt;
+    let ticked = false;
+    let cap = 20;
+    while (tickAccum >= msPerGen && cap-- > 0) {
       universe.tick();
       generation++;
+      tickAccum -= msPerGen;
+      ticked = true;
     }
-    genSpan.textContent = generation;
-    draw();
+    if (tickAccum > msPerGen * 5) tickAccum = msPerGen;
+    if (ticked) draw();
     animId = requestAnimationFrame(loop);
   }
 
@@ -142,45 +338,49 @@ async function main() {
       running = true;
       playPauseBtn.textContent = 'Pause';
       playPauseBtn.classList.remove('active');
-      loop();
+      lastFrameTime = 0;
+      tickAccum = 0;
+      loop(performance.now());
     }
+  }
+
+  // ─── Resolution ─────────────────────────────────────────
+  function resize(newW, newH) {
+    GRID_W = newW;
+    GRID_H = newH;
+    universe.free();
+    universe = new Universe(GRID_W, GRID_H);
+    setupCanvas();
+    generation = 0;
+    genSpan.textContent = '0';
+    switchCA(caType);
   }
 
   // ─── Build B/S checkboxes ───────────────────────────────
   function buildBSRow(containerId, initial) {
     const row = document.getElementById(containerId);
-    // Keep the label span, clear the rest
     while (row.children.length > 1) row.removeChild(row.lastChild);
-    const labels = [];
     for (let n = 0; n <= 8; n++) {
       const lbl = document.createElement('label');
       lbl.textContent = n;
       lbl.dataset.n = n;
       if (initial.includes(n)) lbl.classList.add('on');
-      lbl.addEventListener('click', () => {
-        lbl.classList.toggle('on');
-        onBSChange();
-      });
+      lbl.addEventListener('click', () => { lbl.classList.toggle('on'); onBSChange(); });
       row.appendChild(lbl);
-      labels.push(lbl);
     }
-    return labels;
   }
 
   function readBS(containerId) {
-    const row = document.getElementById(containerId);
     const arr = [];
-    for (const lbl of row.querySelectorAll('label')) {
+    for (const lbl of document.getElementById(containerId).querySelectorAll('label')) {
       if (lbl.classList.contains('on')) arr.push(parseInt(lbl.dataset.n));
     }
     return arr;
   }
 
   function setBS(containerId, arr) {
-    const row = document.getElementById(containerId);
-    for (const lbl of row.querySelectorAll('label')) {
-      const n = parseInt(lbl.dataset.n);
-      lbl.classList.toggle('on', arr.includes(n));
+    for (const lbl of document.getElementById(containerId).querySelectorAll('label')) {
+      lbl.classList.toggle('on', arr.includes(parseInt(lbl.dataset.n)));
     }
   }
 
@@ -188,18 +388,13 @@ async function main() {
     const b = readBS('birth-row');
     const s = readBS('surv-row');
     universe.update_life_like(bsMask(b), bsMask(s));
-    // Check if matches a preset
     const presetSel = document.getElementById('life-preset');
     let matched = false;
     for (let i = 0; i < LIFE_PRESETS.length - 1; i++) {
       const p = LIFE_PRESETS[i];
-      if (arrEq(p.b, b) && arrEq(p.s, s)) {
-        presetSel.value = i;
-        matched = true;
-        break;
-      }
+      if (arrEq(p.b, b) && arrEq(p.s, s)) { presetSel.value = i; matched = true; break; }
     }
-    if (!matched) presetSel.value = LIFE_PRESETS.length - 1; // Custom
+    if (!matched) presetSel.value = LIFE_PRESETS.length - 1;
   }
 
   function arrEq(a, b) {
@@ -260,11 +455,9 @@ async function main() {
 
   function switchCA(type) {
     caType = type;
-    // Show/hide param sections
     for (const [key, el] of Object.entries(paramSections)) {
       el.classList.toggle('active', key === type);
     }
-    // Configure universe
     generation = 0;
     genSpan.textContent = '0';
     switch (type) {
@@ -305,7 +498,6 @@ async function main() {
       }
     }
     draw();
-    if (!running) draw();
   }
 
   // ─── Event handlers ─────────────────────────────────────
@@ -337,7 +529,6 @@ async function main() {
     e.target.value = rule;
     universe.update_elementary(rule);
     updateRuleViz(rule);
-    // Set preset to Custom if doesn't match
     const match = ELEM_PRESETS.findIndex(p => p.rule === rule);
     elemPresetSel.value = match >= 0 ? match : ELEM_PRESETS.length - 1;
   });
@@ -355,12 +546,36 @@ async function main() {
     universe.update_cyclic(ns, th);
   });
 
-  // Speed
+  // Speed (time-based)
   const speedSlider = document.getElementById('speed');
   const speedVal = document.getElementById('speed-val');
   speedSlider.addEventListener('input', (e) => {
-    speed = parseInt(e.target.value);
-    speedVal.textContent = speed;
+    const idx = parseInt(e.target.value) - 1;
+    genPerSec = SPEED_TABLE[idx];
+    speedVal.textContent = genPerSec;
+  });
+
+  // Resolution
+  document.getElementById('resolution').addEventListener('change', (e) => {
+    const [w, h] = e.target.value.split('x').map(Number);
+    resize(w, h);
+  });
+
+  // Render mode
+  document.getElementById('render-mode').addEventListener('change', (e) => {
+    renderMode = e.target.value;
+    document.getElementById('ms-params').classList.toggle('active', renderMode === 'marching');
+    setupCanvas();
+    draw();
+  });
+
+  // MS theme
+  document.getElementById('ms-theme').addEventListener('change', (e) => {
+    msTheme = MS_THEMES[e.target.value];
+    if (renderMode === 'marching') {
+      tileImages = buildTileImages(tileS, msTheme);
+      draw();
+    }
   });
 
   // Play/Pause
@@ -399,8 +614,7 @@ async function main() {
     generation = 0;
     genSpan.textContent = '0';
     if (caType === 'cyclic') {
-      const ns = parseInt(document.getElementById('cyc-states').value) || 16;
-      palette = buildCyclicPalette(ns);
+      palette = buildCyclicPalette(parseInt(document.getElementById('cyc-states').value) || 16);
     }
     draw();
   });
@@ -412,11 +626,17 @@ async function main() {
 
   function cellFromEvent(e) {
     const rect = canvas.getBoundingClientRect();
-    const col = Math.floor((e.clientX - rect.left) / rect.width * GRID_W);
-    const row = Math.floor((e.clientY - rect.top) / rect.height * GRID_H);
-    if (col >= 0 && col < GRID_W && row >= 0 && row < GRID_H) {
-      return { row, col };
+    let col, row;
+    if (renderMode === 'marching') {
+      const px = (e.clientX - rect.left) / rect.width * canvas.width;
+      const py = (e.clientY - rect.top) / rect.height * canvas.height;
+      col = Math.round(px / tileS);
+      row = Math.round(py / tileS);
+    } else {
+      col = Math.floor((e.clientX - rect.left) / rect.width * GRID_W);
+      row = Math.floor((e.clientY - rect.top) / rect.height * GRID_H);
     }
+    if (col >= 0 && col < GRID_W && row >= 0 && row < GRID_H) return { row, col };
     return null;
   }
 
@@ -425,19 +645,14 @@ async function main() {
     const cell = cellFromEvent(e);
     if (!cell) return;
     if (e.button === 2) {
-      // Right click: erase
-      erasing = true;
-      painting = true;
+      erasing = true; painting = true;
       universe.set_cell(cell.row, cell.col, 0);
     } else {
-      // Left click: toggle first cell, then paint with that state
       universe.toggle_cell(cell.row, cell.col);
-      // Read what state it became
       const ptr = universe.cells_ptr();
       const cells = new Uint8Array(wasm.memory.buffer, ptr, GRID_W * GRID_H);
       paintState = cells[cell.row * GRID_W + cell.col];
-      painting = true;
-      erasing = false;
+      painting = true; erasing = false;
     }
     draw();
   });
@@ -450,19 +665,18 @@ async function main() {
     draw();
   });
 
-  window.addEventListener('mouseup', () => {
-    painting = false;
-    erasing = false;
-  });
-
+  window.addEventListener('mouseup', () => { painting = false; erasing = false; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // ─── Init and start ─────────────────────────────────────
+  setupCanvas();
   universe.set_life_like(bsMask([3]), bsMask([2, 3]));
   universe.randomize(Date.now() & 0xFFFFFFFF);
   updateRuleViz(30);
   draw();
-  loop();
+  lastFrameTime = 0;
+  tickAccum = 0;
+  loop(performance.now());
 }
 
 main();
