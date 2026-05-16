@@ -1,4 +1,4 @@
-import init, { Universe } from '../pkg/ca.js';
+import init, { Universe } from './pkg/ca.js';
 
 // ─── Presets ────────────────────────────────────────────────
 const LIFE_PRESETS = [
