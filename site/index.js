@@ -63,6 +63,11 @@ function hslToRgb(h, s, l) {
   return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
 }
 
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
+
 function bsMask(arr) {
   let mask = 0;
   for (const n of arr) mask |= (1 << n);
@@ -195,6 +200,24 @@ function buildTileImages(S, theme) {
   return { tiles, circle: cc, pad, circleOff: cs / 2 };
 }
 
+// ─── Metaballs ──────────────────────────────────────────────
+
+function buildMetaballKernel(radius) {
+  const sigma = radius / 2.5;
+  const size = radius * 2 + 1;
+  const kernel = new Float32Array(size * size);
+  const invSigma2 = 1 / (2 * sigma * sigma);
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= radius * radius) {
+        kernel[(dy + radius) * size + (dx + radius)] = Math.exp(-d2 * invSigma2);
+      }
+    }
+  }
+  return { kernel, size, radius };
+}
+
 const SPEED_TABLE = [1, 2, 3, 5, 8, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300, 480, 600, 900, 1200, 1800];
 
 // ─── Main ───────────────────────────────────────────────────
@@ -210,6 +233,9 @@ async function main() {
 
   let imageData, imgBuf;
   let tileS = 0, tileImages = null;
+  let mbField = null, mbFieldW = 0, mbFieldH = 0;
+  let mbMultiplier = 1, mbKernel = null;
+  let mbImageData = null, mbBuf = null;
 
   let running = true;
   let generation = 0;
@@ -251,8 +277,35 @@ async function main() {
     tileImages = buildTileImages(tileS, msTheme);
   }
 
+  function setupMetaballsCanvas() {
+    if (GRID_W * GRID_H > 120000) {
+      console.warn('Metaballs: grid too large, falling back to pixels');
+      renderMode = 'pixels';
+      document.getElementById('render-mode').value = 'pixels';
+      document.getElementById('ms-params').classList.remove('active');
+      setupPixelCanvas();
+      return;
+    }
+    const rawMult = Math.floor(Math.min(DISPLAY_W / GRID_W, DISPLAY_H / GRID_H));
+    mbMultiplier = Math.max(1, Math.min(6, rawMult));
+    mbFieldW = GRID_W * mbMultiplier;
+    mbFieldH = GRID_H * mbMultiplier;
+    mbField = new Float32Array(mbFieldW * mbFieldH);
+    const kernelRadius = Math.max(2, mbMultiplier * 3);
+    mbKernel = buildMetaballKernel(kernelRadius);
+    canvas.width = mbFieldW;
+    canvas.height = mbFieldH;
+    canvas.style.width = DISPLAY_W + 'px';
+    canvas.style.height = DISPLAY_H + 'px';
+    canvas.style.imageRendering = 'auto';
+    mbImageData = ctx.createImageData(mbFieldW, mbFieldH);
+    mbBuf = mbImageData.data;
+    for (let i = 3; i < mbBuf.length; i += 4) mbBuf[i] = 255;
+  }
+
   function setupCanvas() {
-    if (renderMode === 'marching') setupMarchingCanvas();
+    if (renderMode === 'metaballs') setupMetaballsCanvas();
+    else if (renderMode === 'marching') setupMarchingCanvas();
     else setupPixelCanvas();
   }
 
@@ -299,8 +352,67 @@ async function main() {
     }
   }
 
+  function drawMetaballs() {
+    const ptr = universe.cells_ptr();
+    const cells = new Uint8Array(wasm.memory.buffer, ptr, GRID_W * GRID_H);
+    const field = mbField;
+    const fw = mbFieldW, fh = mbFieldH;
+    const mult = mbMultiplier;
+    const { kernel, size, radius } = mbKernel;
+
+    field.fill(0);
+
+    for (let row = 0; row < GRID_H; row++) {
+      const rowOff = row * GRID_W;
+      const fy = row * mult;
+      for (let col = 0; col < GRID_W; col++) {
+        if (cells[rowOff + col] === 0) continue;
+        const fx = col * mult;
+        const yStart = Math.max(0, fy - radius);
+        const yEnd = Math.min(fh - 1, fy + radius);
+        const xStart = Math.max(0, fx - radius);
+        const xEnd = Math.min(fw - 1, fx + radius);
+        for (let py = yStart; py <= yEnd; py++) {
+          const ky = py - fy + radius;
+          const fOff = py * fw;
+          const kOff = ky * size;
+          for (let px = xStart; px <= xEnd; px++) {
+            field[fOff + px] += kernel[kOff + (px - fx + radius)];
+          }
+        }
+      }
+    }
+
+    const theme = msTheme;
+    const [bgR, bgG, bgB] = hexToRgb(theme.bg);
+    const [fgR, fgG, fgB] = hexToRgb(theme.fill);
+    const buf = mbBuf;
+    const THRESHOLD = 0.8;
+    const EDGE = 0.3;
+    const lo = THRESHOLD - EDGE, hi = THRESHOLD + EDGE;
+
+    for (let i = 0; i < fw * fh; i++) {
+      const v = field[i];
+      const off = i * 4;
+      if (v <= lo) {
+        buf[off] = bgR; buf[off + 1] = bgG; buf[off + 2] = bgB;
+      } else if (v >= hi) {
+        buf[off] = fgR; buf[off + 1] = fgG; buf[off + 2] = fgB;
+      } else {
+        let t = (v - lo) / (hi - lo);
+        t = t * t * (3 - 2 * t);
+        buf[off]     = bgR + (fgR - bgR) * t | 0;
+        buf[off + 1] = bgG + (fgG - bgG) * t | 0;
+        buf[off + 2] = bgB + (fgB - bgB) * t | 0;
+      }
+    }
+
+    ctx.putImageData(mbImageData, 0, 0);
+  }
+
   function draw() {
-    if (renderMode === 'marching') drawMarching();
+    if (renderMode === 'metaballs') drawMetaballs();
+    else if (renderMode === 'marching') drawMarching();
     else drawPixels();
     genSpan.textContent = generation;
   }
@@ -564,7 +676,8 @@ async function main() {
   // Render mode
   document.getElementById('render-mode').addEventListener('change', (e) => {
     renderMode = e.target.value;
-    document.getElementById('ms-params').classList.toggle('active', renderMode === 'marching');
+    const showTheme = (renderMode === 'marching' || renderMode === 'metaballs');
+    document.getElementById('ms-params').classList.toggle('active', showTheme);
     setupCanvas();
     draw();
   });
@@ -574,6 +687,8 @@ async function main() {
     msTheme = MS_THEMES[e.target.value];
     if (renderMode === 'marching') {
       tileImages = buildTileImages(tileS, msTheme);
+      draw();
+    } else if (renderMode === 'metaballs') {
       draw();
     }
   });
@@ -632,6 +747,11 @@ async function main() {
       const py = (e.clientY - rect.top) / rect.height * canvas.height;
       col = Math.round(px / tileS);
       row = Math.round(py / tileS);
+    } else if (renderMode === 'metaballs') {
+      const px = (e.clientX - rect.left) / rect.width * canvas.width;
+      const py = (e.clientY - rect.top) / rect.height * canvas.height;
+      col = Math.floor(px / mbMultiplier);
+      row = Math.floor(py / mbMultiplier);
     } else {
       col = Math.floor((e.clientX - rect.left) / rect.width * GRID_W);
       row = Math.floor((e.clientY - rect.top) / rect.height * GRID_H);
